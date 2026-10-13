@@ -3,11 +3,15 @@ name = "askdocs"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "asyncpg>=0.32.0",
     "fastapi[standard]>=0.143.0",
+    "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.1.4",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "mypy>=2.4.0",
     "pre-commit>=4.6.2",
     "pytest>=9.1.1",
@@ -25,3 +29,5 @@ python_version = "3.12"
 strict = true
 files = ["app"]
 plugins = ["pydantic.mypy"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
