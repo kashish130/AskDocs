@@ -32,7 +32,7 @@ async def test_signup_duplicate_email_returns_409(client: AsyncClient) -> None:
     await client.post("/auth/signup", json=CREDS)
     resp = await client.post("/auth/signup", json=CREDS)
 
-    assert resp.status_code == 400
+    assert resp.status_code == 409
 
 
 async def test_signup_short_password_returns_422(client: AsyncClient) -> None:
