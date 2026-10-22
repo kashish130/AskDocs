@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: askdocs
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: askdocs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U askdocs -d askdocs"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://askdocs:ci-password@localhost:5432/askdocs
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else
+      PGPASSWORD: ci-password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy
+
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+
+      - name: Create test database
+        run: psql -h localhost -U askdocs -d askdocs -c "CREATE DATABASE askdocs_test;"
+
+      - name: Run tests
+        run: uv run pytest -v
