@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -39,3 +39,16 @@ async def client() -> AsyncIterator[AsyncClient]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
+
+
+@pytest.fixture
+async def login_as(
+    client: AsyncClient,
+) -> Callable[[str], Awaitable[dict[str, str]]]:
+    async def _login(email: str) -> dict[str, str]:
+        creds = {"email": email, "password": "correct-horse-battery"}
+        await client.post("/auth/signup", json=creds)
+        resp = await client.post("/auth/login", json=creds)
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    return _login
