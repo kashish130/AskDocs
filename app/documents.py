@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models import Document
-from app.permissions import OrgMember
+from app.permissions import OrgMember, TenantDb
 from app.storage import Storage, get_storage
 
 router = APIRouter(prefix="/orgs/{org_id}/documents", tags=["documents"])
@@ -41,7 +41,7 @@ class DocumentOut(BaseModel):
 async def upload_document(
     ctx: OrgMember,
     file: Annotated[UploadFile, File(...)],
-    db: Dbsession,
+    db: TenantDb,
     storage: StorageDep,
 ) -> Document:
     # ---1.Validate declared content type and size---

@@ -1,9 +1,10 @@
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
@@ -43,5 +44,17 @@ async def require_owner(
     return ctx
 
 
+async def get_tenant_db(
+    ctx: Annotated[OrgContext, Depends(get_org_context)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AsyncIterator[AsyncSession]:
+    await db.execute(
+        text("SELECT set_config('app.current_tenant', :org_id, true)"),
+        {"org_id": str(ctx.org.id)},
+    )
+    yield db
+
+
 OrgMember = Annotated[OrgContext, Depends(get_org_context)]
 OrgOwner = Annotated[OrgContext, Depends(require_owner)]
+TenantDb = Annotated[AsyncSession, Depends(get_tenant_db)]
