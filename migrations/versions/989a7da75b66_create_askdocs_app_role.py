@@ -37,7 +37,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execxute(
+    op.execute(
         "ALTER DEFAULT PRIVILEGES IN SCHEMA public"
         " REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM askdocs_app"
     )

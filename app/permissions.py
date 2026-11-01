@@ -11,6 +11,8 @@ from app.auth import get_current_user
 from app.db import get_db
 from app.models import Membership, Organization, User
 
+TENANT_SESSION_KEY = "app.current_org"
+
 
 @dataclass
 class OrgContext:
@@ -49,7 +51,7 @@ async def get_tenant_db(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AsyncIterator[AsyncSession]:
     await db.execute(
-        text("SELECT set_config('app.current_tenant', :org_id, true)"),
+        text("SELECT set_config('app.current_org', :org_id, true)"),
         {"org_id": str(ctx.org.id)},
     )
     yield db

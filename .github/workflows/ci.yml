@@ -26,6 +26,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+asyncpg://askdocs:ci-password@localhost:5432/askdocs
+      APP_DATABASE_URL: postgresql+asyncpg://askdocs_app:askdocs_app_dev@localhost:5432/askdocs
       JWT_SECRET: ci-only-secret-not-used-anywhere-else
       PGPASSWORD: ci-password
 
