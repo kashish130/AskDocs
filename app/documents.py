@@ -96,7 +96,7 @@ async def upload_document(
         )
 
         db.add(document)
-        await db.commit()
+
     except IntegrityError:
         await db.rollback()
         await storage.delete(storage_key)  # Clean up the stored file
@@ -104,7 +104,6 @@ async def upload_document(
             status.HTTP_409_CONFLICT,
             "This document has already been uploaded",
         ) from None
-    await db.refresh(document)
 
     try:
         text = extract_text(data, file.content_type)
@@ -126,7 +125,7 @@ async def upload_document(
         document.status = "failed"
         document.error = str(e)[:500]
         await db.commit()
-    await db.refresh(document)
+
     return document
 
 
