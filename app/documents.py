@@ -8,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chunking import chunk_text
 from app.db import get_db
-from app.models import Document
+from app.extraction import ExtractionError, extract_text
+from app.models import Document, DocumentChunk
 from app.permissions import OrgMember, TenantDb
 from app.storage import Storage, get_storage
 
@@ -36,6 +38,11 @@ class DocumentOut(BaseModel):
     content_type: str
     size_bytes: int
     content_hash: str
+
+
+class ChunkOut(BaseModel):
+    chunk_index: int
+    text: str
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=DocumentOut)
@@ -97,7 +104,29 @@ async def upload_document(
             status.HTTP_409_CONFLICT,
             "This document has already been uploaded",
         ) from None
+    await db.refresh(document)
 
+    try:
+        text = extract_text(data, file.content_type)
+        chunks = chunk_text(text)
+        for idx, chunk_content in enumerate(chunks):
+            db.add(
+                DocumentChunk(
+                    document_id=document.id,
+                    organization_id=ctx.org.id,
+                    chunk_index=idx,
+                    text=chunk_content,
+                )
+            )
+
+        document.status = "ready"
+        await db.commit()
+    except (ExtractionError, ValueError) as e:
+        await db.rollback()
+        document.status = "failed"
+        document.error = str(e)[:500]
+        await db.commit()
+    await db.refresh(document)
     return document
 
 
@@ -116,3 +145,18 @@ async def get_document(
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     return document
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkOut])
+async def list_document_chunks(
+    document_id: uuid.UUID,
+    db: TenantDb,
+) -> list[ChunkOut]:
+    result = await db.execute(
+        select(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index.asc())
+    )
+    return [
+        ChunkOut(chunk_index=chunk.chunk_index, text=chunk.text) for chunk in result.scalars().all()
+    ]

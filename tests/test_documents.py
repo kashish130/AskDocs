@@ -13,13 +13,13 @@ async def test_upload_happy_path(client, login_as):
     resp = await client.post(
         f"/orgs/{org['id']}/documents",
         headers=headers,
-        files={"file": ("test.pdf", b"%PDF-1.4\n...", "application/pdf")},
+        files={"file": ("hello.txt", b"Hello, World!", "text/plain")},
     )
 
     assert resp.status_code == 201
     body = resp.json()
-    assert body["filename"] == "test.pdf"
-    assert body["status"] == "queued"
+    assert body["filename"] == "hello.txt"
+    assert body["status"] == "ready"
     assert "storage_key" not in body
 
 
@@ -100,3 +100,39 @@ async def test_upload_rejects_too_large(client, login_as):
         files={"file": ("large.pdf", large_file, "application/pdf")},
     )
     assert resp.status_code == 413
+
+
+async def test_upload_processes_pdf_and_chunks(client, login_as):
+    import io
+
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(
+        100,
+        750,
+        "Askdocs is a multi-tenant question answering syastem."
+        "It uses pgvector for retrieval and Groq for generation.",
+    )
+    c.save()
+    pdf_bytes = buf.getvalue()
+    headers = await login_as("alice@example.com")
+    org = (await client.post("/orgs", json={"name": "ChunkOrg"}, headers=headers)).json()
+    resp = await client.post(
+        f"/orgs/{org['id']}/documents",
+        headers=headers,
+        files={"file": ("chunk_test.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert resp.status_code == 201
+    doc = resp.json()
+    assert doc["status"] == "ready", f"Document status should be 'ready', got {doc['status']}"
+
+    chunks_resp = await client.get(
+        f"/orgs/{org['id']}/documents/{doc['id']}/chunks",
+        headers=headers,
+    )
+    assert chunks_resp.status_code == 200
+    chunks = chunks_resp.json()
+    assert len(chunks) >= 1
+    assert "askdocs" in chunks[0]["text"].lower()
