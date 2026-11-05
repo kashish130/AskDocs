@@ -28,7 +28,7 @@ async def upload_pdf(
     resp = await client.post(
         f"/orgs/{org_id}/documents",
         headers=headers,
-        files={"file": ("doc.pdf", b"%PDF-1.4\n" + body, "application/pdf")},
+        files={"file": ("doc.txt", body, "text/plain")},
     )
     assert resp.status_code == 201, resp.text
     return dict(resp.json())

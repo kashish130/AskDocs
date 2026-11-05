@@ -24,8 +24,7 @@ async def test_upload_happy_path(client, login_as):
 
 
 async def test_duplicate_file_rejects(client, login_as):
-    pdf_bytes = b"%PDF-1.4\nsome content"
-    file_payload = ("doc.pdf", pdf_bytes, "application/pdf")
+    file_payload = ("doc.txt", b"some content", "text/plain")
     headers = await login_as("user1@example.com")
     org = (await client.post("/orgs", json={"name": "Alchemist"}, headers=headers)).json()
     first = await client.post(
@@ -51,8 +50,7 @@ async def test_duplicate_file_rejects(client, login_as):
 
 
 async def test_upload_same_file_different_org(client, login_as):
-    pdf_bytes = b"%PDF-1.4\nhello world"
-    file_payload = ("doc.pdf", pdf_bytes, "application/pdf")
+    file_payload = ("doc.txt", b"some content", "text/plain")
 
     # --- Organization 1 uploads the file ---
     headers_a = await login_as("alice@example.com")
@@ -136,3 +134,21 @@ async def test_upload_processes_pdf_and_chunks(client, login_as):
     chunks = chunks_resp.json()
     assert len(chunks) >= 1
     assert "askdocs" in chunks[0]["text"].lower()
+
+
+async def test_unreadable_pdf_is_saved_as_failed(client, login_as):
+    headers = await login_as("alice@example.com")
+    org = (await client.post("/orgs", json={"name": "Org"}, headers=headers)).json()
+
+    resp = await client.post(
+        f"/orgs/{org['id']}/documents",
+        headers=headers,
+        files={"file": ("bad.pdf", b"%PDF-1.4\nnot really a pdf", "application/pdf")},
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "failed"
+    fetched = await client.get(f"/orgs/{org['id']}/documents/{body['id']}", headers=headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["status"] == "failed"

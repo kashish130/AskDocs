@@ -52,63 +52,67 @@ async def upload_document(
     db: TenantDb,
     storage: StorageDep,
 ) -> Document:
-    # ---1.Validate declared content type and size---
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
+    # --- 1. Validate declared content type ---
+    content_type = file.content_type
+    if content_type is None or content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported file type: {file.content_type}"
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"Unsupported file type: {content_type}",
         )
 
-    # ---2.Read the file in chunks and compute the hash---
+    # --- 2. Read in blocks: enforce size limit, hash, keep the bytes ---
     hasher = hashlib.sha256()
+    parts: list[bytes] = []
     size_bytes = 0
-    while chunk := await file.read(CHUNK_SIZE):
-        size_bytes += len(chunk)
+    while block := await file.read(CHUNK_SIZE):
+        size_bytes += len(block)
         if size_bytes > MAX_UPLOAD_BYTES:
             raise HTTPException(
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 f"File exceeds maximum size of {MAX_UPLOAD_BYTES} bytes",
             )
-        hasher.update(chunk)
-
+        hasher.update(block)
+        parts.append(block)
+    data = b"".join(parts)
     content_hash = hasher.hexdigest()
 
-    # ---3 Rewind and read all bytes(storage.put wants bytes)---
-    await file.seek(0)
-    data = await file.read()
-
-    # ---4. Generate a unique storage key for the file---
-    storage_key = f"{ctx.org.id}/{uuid.uuid4().hex}"
-
-    # ---5. Save the file to storage so the db failure can be rolled back---
+    # --- 3. Decide the id first, then store the file ---
+    document_id = uuid.uuid4()
+    storage_key = f"{ctx.org.id}/{document_id.hex}"
     await storage.put(storage_key, data)
 
-    # ---6 Create a new Document record in the database
+    # --- 4. Insert the row now, so a duplicate is caught at this line ---
+    document = Document(
+        id=document_id,
+        organization_id=ctx.org.id,
+        uploaded_by=ctx.user.id,
+        filename=(file.filename or "untitled")[:255],
+        storage_key=storage_key,
+        content_type=content_type,
+        size_bytes=size_bytes,
+        content_hash=content_hash,
+        status="queued",
+    )
+    db.add(document)
     try:
-        document = Document(
-            organization_id=ctx.org.id,
-            uploaded_by=ctx.user.id,
-            filename=file.filename or "untitled",
-            storage_key=storage_key,
-            content_type=file.content_type,
-            size_bytes=size_bytes,
-            content_hash=content_hash,
-            status="queued",
-        )
-
-        db.add(document)
-
+        await db.flush()
     except IntegrityError:
         await db.rollback()
-        await storage.delete(storage_key)  # Clean up the stored file
+        await storage.delete(storage_key)
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "This document has already been uploaded",
         ) from None
 
+    # --- 5. Extract text and build chunks; a failure marks the document failed ---
     try:
-        text = extract_text(data, file.content_type)
-        chunks = chunk_text(text)
-        for idx, chunk_content in enumerate(chunks):
+        text = extract_text(data, content_type)
+        chunk_texts = chunk_text(text)
+    except (ExtractionError, ValueError) as e:
+        document.status = "failed"
+        document.error = str(e)[:500]
+    else:
+        for idx, chunk_content in enumerate(chunk_texts):
             db.add(
                 DocumentChunk(
                     document_id=document.id,
@@ -117,15 +121,14 @@ async def upload_document(
                     text=chunk_content,
                 )
             )
-
         document.status = "ready"
-        await db.commit()
-    except (ExtractionError, ValueError) as e:
-        await db.rollback()
-        document.status = "failed"
-        document.error = str(e)[:500]
-        await db.commit()
 
+    # --- 6. One commit saves everything together ---
+    try:
+        await db.commit()
+    except Exception:
+        await storage.delete(storage_key)
+        raise
     return document
 
 
