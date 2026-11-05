@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 
 import pytest
@@ -152,3 +153,54 @@ async def test_unreadable_pdf_is_saved_as_failed(client, login_as):
     fetched = await client.get(f"/orgs/{org['id']}/documents/{body['id']}", headers=headers)
     assert fetched.status_code == 200
     assert fetched.json()["status"] == "failed"
+
+
+async def test_upload_embeds_chunks(client, login_as) -> None:
+    import io
+
+    from reportlab.pdfgen import canvas
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf)
+    c.drawString(
+        100,
+        750,
+        "Askdocs is a multi-tenant question answering system."
+        "It uses pgvector for retrieval and Groq for generation.",
+    )
+    c.save()
+    pdf_bytes = buf.getvalue()
+    headers = await login_as("alice@example.com")
+    org = (await client.post("/orgs", json={"name": "EmbedOrg"}, headers=headers)).json()
+    resp = await client.post(
+        f"/orgs/{org['id']}/documents",
+        headers=headers,
+        files={"file": ("embed_test.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert resp.status_code == 201
+    doc = resp.json()
+    assert doc["status"] == "ready"
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.models import DocumentChunk
+    from tests.conftest import TEST_DB_URL
+
+    engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                select(DocumentChunk.embedding).where(
+                    DocumentChunk.document_id == uuid.UUID(doc["id"])
+                )
+            )
+            embeddings = [row[0] for row in result.all()]
+    finally:
+        await engine.dispose()
+
+        assert len(embeddings) >= 1
+        for emb in embeddings:
+            assert emb is not None
+            assert len(emb) == 384

@@ -27,6 +27,7 @@ def anyio_backend() -> str:
 async def client() -> AsyncIterator[AsyncClient]:
     engine = create_async_engine(TEST_DB_URL, poolclass=NullPool)
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 

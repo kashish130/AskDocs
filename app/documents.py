@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chunking import chunk_text
 from app.db import get_db
+from app.embeddings import embed_texts
 from app.extraction import ExtractionError, extract_text
 from app.models import Document, DocumentChunk
 from app.permissions import OrgMember, TenantDb
@@ -112,13 +113,15 @@ async def upload_document(
         document.status = "failed"
         document.error = str(e)[:500]
     else:
-        for idx, chunk_content in enumerate(chunk_texts):
+        embeddings = await embed_texts(chunk_texts)
+        for idx, (chunk_content, vector) in enumerate(zip(chunk_texts, embeddings, strict=True)):
             db.add(
                 DocumentChunk(
                     document_id=document.id,
                     organization_id=ctx.org.id,
                     chunk_index=idx,
                     text=chunk_content,
+                    embedding=vector,
                 )
             )
         document.status = "ready"

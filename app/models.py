@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -91,4 +92,7 @@ class DocumentChunk(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)  # Store chunk content as text
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(384), nullable=True
+    )  # Store vector embedding
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
